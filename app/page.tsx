@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 type View = "gmail" | "agenda" | "noticias" | "mensagem" | null;
+type LiveData = { connected: boolean; checkedAt: string; gmail: { unreadInbox: number; messages: Array<{ id: string; sender: string; subject: string; snippet: string }> }; calendar: { remainingToday: number; events: Array<{ id: string; title: string; start?: string; location?: string }> } };
 
 const priorities = [
   { level: "Alta", title: "Recarga da Negra Rosa às 12:00", detail: "O compromisso começa em menos de uma hora. Garanta a recarga do chip antes das próximas estratégias.", tag: "Operação" },
@@ -38,11 +39,30 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [liveData, setLiveData] = useState<LiveData | null>(null);
+  const [liveError, setLiveError] = useState(false);
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && setView(null);
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
   }, []);
+  useEffect(() => {
+    let active = true;
+    const update = async () => {
+      try {
+        const response = await fetch("/api/google/status", { cache: "no-store" });
+        if (!response.ok) throw new Error("Falha ao atualizar");
+        const data = await response.json();
+        if (active) { setLiveData(data); setLiveError(false); }
+      } catch { if (active) setLiveError(true); }
+    };
+    update();
+    const timer = window.setInterval(update, 60 * 60 * 1000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  const checkedAt = liveData?.checkedAt ? new Date(liveData.checkedAt) : null;
+  const nextCheck = checkedAt ? new Date(checkedAt.getTime() + 60 * 60 * 1000) : null;
+  const time = (date: Date | null) => date ? date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bahia" }) : "—";
   async function sendRequest(event: React.FormEvent) {
     event.preventDefault();
     setSending(true);
@@ -54,13 +74,13 @@ export default function Home() {
   return <main>
     <header className="topbar">
       <div className="brand"><img src="/jeta-logo.png" alt="JETA Performance" /><div><strong>JETA PERFORMANCE</strong><span>Seu Painel Executivo</span></div></div>
-      <div className="update"><span className="live-dot" /><div><b>Atualizado hoje, 11:06</b><span>Próxima atualização · 12:00</span></div></div>
+      <div className="update"><span className="live-dot" /><div><b>{liveError ? "Último resumo preservado" : checkedAt ? `Atualizado hoje, ${time(checkedAt)}` : "Atualizando agora…"}</b><span>{nextCheck ? `Próxima atualização · ${time(nextCheck)}` : "Consultando Gmail e Agenda"}</span></div></div>
     </header>
     <section className="hero">
       <div><p className="eyebrow">TERÇA-FEIRA · 1º DE SETEMBRO</p><h1>Bom dia, Judson.</h1><p>Seu painel foi atualizado. Há <b>2 pontos</b> que merecem sua atenção.</p></div>
       <div className="source-status" aria-label="Abrir detalhes das fontes">
-        <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{emails.length}</small></button>
-        <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{agenda.length}</small></button>
+        <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{liveData?.gmail.unreadInbox ?? emails.length}</small></button>
+        <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{liveData?.calendar.remainingToday ?? agenda.length}</small></button>
         <button onClick={()=>setView("noticias")}><span>●</span> Notícias <small>{news.length}</small></button>
         <button className="calendar-button" onClick={()=>{setRequestType("calendar");setMessage("Evento ou cliente: \nData e horário atual: \nNova data e horário: \nAvisar convidados: sim\nObservações: ");setSent(false);setView("mensagem")}}><span>□</span> Remarcar evento</button>
         <button className="message-button" onClick={()=>{setSent(false);setView("mensagem")}}><span>✦</span> Pedir atualização</button>
@@ -79,13 +99,13 @@ export default function Home() {
       <section className="panel"><div className="section-title small"><Icon>□</Icon><div><span>AGENDA</span><h2>Compromissos que importam</h2></div></div><div className="timeline">{agenda.map(item=><div className="event" key={item.time}><time>{item.time}</time><i className={item.alert?"alert":""}/><div><b>{item.title}</b><span>{item.note}</span></div>{item.alert&&<em>PREPARAR</em>}</div>)}</div><p className="agenda-note">Não há conflitos identificados entre os compromissos principais.</p></section>
     </div>
     <section className="panel news-panel"><div className="section-title small"><Icon>⌁</Icon><div><span>RADAR DE MERCADO</span><h2>Notícias com impacto prático</h2></div></div><div className="news-grid">{news.map(item=><article key={item.title}><span>{item.category}</span><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Abrir fonte ↗</a></article>)}</div></section>
-    <section className="mail-monitor"><div><span className="mail-pulse">●</span><div><b>Monitor executivo ativo</b><p>Gmail e Google Agenda serão verificados a cada hora cheia, das 08h às 18h.</p></div></div><span>PRÓXIMA ATUALIZAÇÃO · 12:00</span></section>
+    <section className="mail-monitor"><div><span className="mail-pulse">●</span><div><b>Monitor executivo ativo</b><p>Gmail e Google Agenda são verificados ao abrir o painel e novamente a cada hora.</p></div></div><span>{nextCheck ? `PRÓXIMA ATUALIZAÇÃO · ${time(nextCheck)}` : "ATUALIZANDO AGORA"}</span></section>
     <section className="insight"><div className="insight-mark">✦</div><div><span>OBSERVAÇÃO EXECUTIVA</span><p>Não há e-mails não lidos relevantes. Seu próximo ponto de atenção é a <b>recarga do chip da Negra Rosa às 12:00</b>; depois, há uma janela livre até 16:00.</p></div></section>
     <footer><span>JETA PERFORMANCE · INFORMAÇÃO PARA DECIDIR MELHOR</span><span>Último resumo preservado automaticamente em caso de falha</span></footer>
     {view && <div className="drawer-backdrop" role="presentation" onMouseDown={(event)=>event.target===event.currentTarget&&setView(null)}><section className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <div className="drawer-head"><div><span>{view === "mensagem" ? "FALE COM SEU EXECUTIVO" : "VISÃO DETALHADA"}</span><h2 id="drawer-title">{view === "gmail" ? "Mensagens relevantes" : view === "agenda" ? "Agenda do dia" : view === "noticias" ? "Notícias selecionadas" : "O que você precisa?"}</h2></div><button onClick={()=>setView(null)} aria-label="Fechar">×</button></div>
-      {view === "gmail" && <div className="detail-list">{emails.length === 0 ? <article className="empty-state"><span>✓</span><h3>Caixa de entrada em dia</h3><p>Nenhuma mensagem não lida relevante foi encontrada nesta atualização.</p></article> : emails.map((item,index)=><article key={item.subject}><div className="detail-meta"><span>{index < 2 ? "REQUER ATENÇÃO" : "INFORMATIVO"}</span><time>NÃO LIDO</time></div><h3>{item.subject}</h3><b>{item.sender}</b><p>{item.summary}</p><em>Por que importa: {item.reason}</em></article>)}</div>}
-      {view === "agenda" && <div className="detail-list">{agenda.map(item=><article key={item.time}><div className="detail-meta"><span>{item.time}</span>{item.alert&&<time>CONFLITO</time>}</div><h3>{item.title}</h3><p>{item.note}</p>{item.alert&&<em>Decisão necessária antes do horário.</em>}</article>)}</div>}
+      {view === "gmail" && <div className="detail-list">{(liveData?.gmail.messages?.length ?? 0) === 0 ? <article className="empty-state"><span>✓</span><h3>Caixa de entrada em dia</h3><p>Nenhuma mensagem não lida foi encontrada nesta atualização.</p></article> : liveData?.gmail.messages.map((item)=><article key={item.id}><div className="detail-meta"><span>NÃO LIDO</span></div><h3>{item.subject}</h3><b>{item.sender}</b><p>{item.snippet}</p></article>)}</div>}
+      {view === "agenda" && <div className="detail-list">{liveData?.calendar.events?.map(item=><article key={item.id}><div className="detail-meta"><span>{item.start ? time(new Date(item.start)) : "DIA TODO"}</span></div><h3>{item.title}</h3>{item.location&&<p>{item.location}</p>}</article>)}</div>}
       {view === "noticias" && <div className="detail-list">{news.map(item=><article key={item.title}><div className="detail-meta"><span>{item.category}</span></div><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Ler notícia na fonte ↗</a></article>)}</div>}
       {view === "mensagem" && <form className="request-form" onSubmit={sendRequest}>
         <p>Registre uma atualização ou ajuste. O monitor executivo detectará o pedido em até 1 minuto e iniciará o trabalho imediatamente.</p>
