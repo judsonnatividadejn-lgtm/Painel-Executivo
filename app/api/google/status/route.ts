@@ -3,6 +3,18 @@ import { googleOAuthClient } from "../../../../lib/google";
 
 export const dynamic = "force-dynamic";
 
+async function withRetry<T>(operation: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try { return await operation(); }
+    catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 400 * 2 ** attempt));
+    }
+  }
+  throw lastError;
+}
+
 export async function GET() {
   try {
     const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
@@ -17,13 +29,13 @@ export async function GET() {
     end.setHours(23, 59, 59, 999);
 
     const [messages, events] = await Promise.all([
-      gmail.users.messages.list({ userId: "me", q: "is:unread in:inbox", maxResults: 20 }),
-      calendar.events.list({ calendarId: "primary", timeMin: now.toISOString(), timeMax: end.toISOString(), singleEvents: true, orderBy: "startTime", maxResults: 20 }),
+      withRetry(() => gmail.users.messages.list({ userId: "me", q: "is:unread in:inbox", maxResults: 20 })),
+      withRetry(() => calendar.events.list({ calendarId: "primary", timeMin: now.toISOString(), timeMax: end.toISOString(), singleEvents: true, orderBy: "startTime", maxResults: 20 })),
     ]);
 
     const emailDetails = await Promise.all((messages.data.messages ?? []).slice(0, 10).map(async ({ id }) => {
       if (!id) return null;
-      const message = await gmail.users.messages.get({ userId: "me", id, format: "metadata", metadataHeaders: ["From", "Subject", "Date"] });
+      const message = await withRetry(() => gmail.users.messages.get({ userId: "me", id, format: "metadata", metadataHeaders: ["From", "Subject", "Date"] }));
       const headers = message.data.payload?.headers ?? [];
       const header = (name: string) => headers.find((item) => item.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
       return { id, sender: header("From"), subject: header("Subject") || "Sem assunto", date: header("Date"), snippet: message.data.snippet ?? "" };
