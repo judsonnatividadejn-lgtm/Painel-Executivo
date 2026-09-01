@@ -49,12 +49,18 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     const update = async () => {
-      try {
-        const response = await fetch("/api/google/status", { cache: "no-store" });
-        if (!response.ok) throw new Error("Falha ao atualizar");
-        const data = await response.json();
-        if (active) { setLiveData(data); setLiveError(false); }
-      } catch { if (active) setLiveError(true); }
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const response = await fetch(`/api/google/status?t=${Date.now()}`, { cache: "no-store" });
+          if (!response.ok) throw new Error("Falha ao atualizar");
+          const data = await response.json();
+          if (active) { setLiveData(data); setLiveError(false); }
+          return;
+        } catch {
+          if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
+        }
+      }
+      if (active) setLiveError(true);
     };
     update();
     const timer = window.setInterval(update, 60 * 60 * 1000);
