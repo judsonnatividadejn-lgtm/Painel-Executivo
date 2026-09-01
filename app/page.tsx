@@ -41,6 +41,11 @@ export default function Home() {
   const [sent, setSent] = useState(false);
   const [liveData, setLiveData] = useState<LiveData | null>(null);
   const [liveError, setLiveError] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<LiveData["calendar"]["events"][number] | null>(null);
+  const [newDate, setNewDate] = useState("");
+  const [newTime, setNewTime] = useState("");
+  const [rescheduling, setRescheduling] = useState(false);
+  const [rescheduleStatus, setRescheduleStatus] = useState("");
   useEffect(() => {
     const close = (event: KeyboardEvent) => event.key === "Escape" && setView(null);
     document.addEventListener("keydown", close);
@@ -77,6 +82,23 @@ export default function Home() {
     setSending(false);
     if (response.ok) { setMessage(""); setSent(true); }
   }
+  function chooseEvent(event: LiveData["calendar"]["events"][number]) {
+    setSelectedEvent(event);
+    const start = event.start ? new Date(event.start) : null;
+    setNewDate(start ? start.toLocaleDateString("en-CA", { timeZone: "America/Bahia" }) : "");
+    setNewTime(start ? start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Bahia" }) : "");
+    setRescheduleStatus("");
+  }
+  async function rescheduleEvent(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedEvent || !newDate || !newTime) return;
+    setRescheduling(true); setRescheduleStatus("");
+    const response = await fetch(`/api/google/events/${encodeURIComponent(selectedEvent.id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ date: newDate, time: newTime }) });
+    setRescheduling(false);
+    if (!response.ok) { setRescheduleStatus("Não foi possível remarcar. Tente novamente."); return; }
+    setRescheduleStatus("Evento remarcado no Google Agenda.");
+    window.setTimeout(() => window.location.reload(), 900);
+  }
   return <main>
     <header className="topbar">
       <div className="brand"><img src="/jeta-logo.png" alt="JETA Performance" /><div><strong>JETA PERFORMANCE</strong><span>Seu Painel Executivo</span></div></div>
@@ -88,7 +110,6 @@ export default function Home() {
         <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{liveData?.gmail.unreadInbox ?? emails.length}</small></button>
         <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{liveData?.calendar.remainingToday ?? agenda.length}</small></button>
         <button onClick={()=>setView("noticias")}><span>●</span> Notícias <small>{news.length}</small></button>
-        <button className="calendar-button" onClick={()=>{setRequestType("calendar");setMessage("Evento ou cliente: \nData e horário atual: \nNova data e horário: \nAvisar convidados: sim\nObservações: ");setSent(false);setView("mensagem")}}><span>□</span> Remarcar evento</button>
         <button className="message-button" onClick={()=>{setSent(false);setView("mensagem")}}><span>✦</span> Pedir atualização</button>
       </div>
     </section>
@@ -111,7 +132,7 @@ export default function Home() {
     {view && <div className="drawer-backdrop" role="presentation" onMouseDown={(event)=>event.target===event.currentTarget&&setView(null)}><section className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <div className="drawer-head"><div><span>{view === "mensagem" ? "FALE COM SEU EXECUTIVO" : "VISÃO DETALHADA"}</span><h2 id="drawer-title">{view === "gmail" ? "Mensagens relevantes" : view === "agenda" ? "Agenda do dia" : view === "noticias" ? "Notícias selecionadas" : "O que você precisa?"}</h2></div><button onClick={()=>setView(null)} aria-label="Fechar">×</button></div>
       {view === "gmail" && <div className="detail-list">{(liveData?.gmail.messages?.length ?? 0) === 0 ? <article className="empty-state"><span>✓</span><h3>Caixa de entrada em dia</h3><p>Nenhuma mensagem não lida foi encontrada nesta atualização.</p></article> : liveData?.gmail.messages.map((item)=><article key={item.id}><div className="detail-meta"><span>NÃO LIDO</span></div><h3>{item.subject}</h3><b>{item.sender}</b><p>{item.snippet}</p></article>)}</div>}
-      {view === "agenda" && <div className="detail-list">{liveData?.calendar.events?.map(item=><article key={item.id}><div className="detail-meta"><span>{item.start ? time(new Date(item.start)) : "DIA TODO"}</span></div><h3>{item.title}</h3>{item.location&&<p>{item.location}</p>}</article>)}</div>}
+      {view === "agenda" && <div className="detail-list">{liveData?.calendar.events?.map(item=><button className="event-choice" type="button" key={item.id} onClick={()=>chooseEvent(item)}><div className="detail-meta"><span>{item.start ? time(new Date(item.start)) : "DIA TODO"}</span><time>CLIQUE PARA REMARCAR</time></div><h3>{item.title}</h3>{item.location&&<p>{item.location}</p>}</button>)}{selectedEvent&&<form className="request-form reschedule-form" onSubmit={rescheduleEvent}><h3>Remarcar: {selectedEvent.title}</h3><div className="reschedule-fields"><label>Nova data<input type="date" value={newDate} onChange={event=>setNewDate(event.target.value)} required /></label><label>Novo horário<input type="time" value={newTime} onChange={event=>setNewTime(event.target.value)} required /></label></div><div className="form-foot"><button type="button" onClick={()=>setSelectedEvent(null)}>Cancelar</button><button type="submit" disabled={rescheduling}>{rescheduling?"Salvando…":"Confirmar nova data ↗"}</button></div>{rescheduleStatus&&<output>{rescheduleStatus}</output>}</form>}</div>}
       {view === "noticias" && <div className="detail-list">{news.map(item=><article key={item.title}><div className="detail-meta"><span>{item.category}</span></div><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Ler notícia na fonte ↗</a></article>)}</div>}
       {view === "mensagem" && <form className="request-form" onSubmit={sendRequest}>
         <p>Registre uma atualização ou ajuste. O monitor executivo detectará o pedido em até 1 minuto e iniciará o trabalho imediatamente.</p>
