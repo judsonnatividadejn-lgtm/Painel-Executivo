@@ -82,6 +82,14 @@ export default function Home() {
   const hour = Number(currentTime.toLocaleTimeString("pt-BR", { hour: "2-digit", hour12: false, timeZone: "America/Bahia" }));
   const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const todayLabel = currentTime.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Bahia" }).toUpperCase();
+  const liveEvents = liveData?.calendar.events ?? [];
+  const relevantCount = (liveData?.gmail.unreadInbox ?? 0) + liveEvents.length;
+  const eventTime = (start?: string) => start ? time(new Date(start)) : "DIA TODO";
+  const nextEvent = liveEvents[0];
+  const attentionCards = [
+    ...(liveData?.gmail.unreadInbox ? [{ level: "Alta", title: `${liveData.gmail.unreadInbox} e-mail${liveData.gmail.unreadInbox > 1 ? "s" : ""} não lido${liveData.gmail.unreadInbox > 1 ? "s" : ""}`, detail: "Abra o Gmail no painel e verifique o que exige resposta ou decisão.", tag: "Gmail" }] : []),
+    ...(nextEvent ? [{ level: "Média", title: `${eventTime(nextEvent.start)} · ${nextEvent.title}`, detail: nextEvent.location ? `Próximo compromisso em ${nextEvent.location}.` : "Próximo compromisso relevante da sua agenda.", tag: "Agenda" }] : []),
+  ];
   async function sendRequest(event: React.FormEvent) {
     event.preventDefault();
     setSending(true);
@@ -113,7 +121,7 @@ export default function Home() {
       <div className="update"><span className="live-dot" /><div><b>{liveError ? "Último resumo preservado" : checkedAt ? `Atualizado hoje, ${time(checkedAt)}` : "Atualizando agora…"}</b><span>{nextCheck ? `Próxima atualização · ${time(nextCheck)}` : "Consultando Gmail e Agenda"}</span></div></div>
     </header>
     <section className="hero">
-      <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, Judson.</h1><p>Seu painel foi atualizado. Há <b>2 pontos</b> que merecem sua atenção.</p></div>
+      <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, Judson.</h1><p>Dados consultados agora. Há <b>{relevantCount} item{relevantCount === 1 ? "" : "s"}</b> entre Gmail e Agenda.</p></div>
       <div className="source-status" aria-label="Abrir detalhes das fontes">
         <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{liveData?.gmail.unreadInbox ?? emails.length}</small></button>
         <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{liveData?.calendar.remainingToday ?? agenda.length}</small></button>
@@ -123,19 +131,18 @@ export default function Home() {
     </section>
     <section className="attention">
       <div className="section-title"><Icon>!</Icon><div><span>ATENÇÃO IMEDIATA</span><h2>O que pode custar tempo ou oportunidade</h2></div></div>
-      <div className="priority-grid">{priorities.map((item,index)=><article className="priority" key={item.title}><div className="priority-head"><span className={`rank ${index===2?"medium":""}`}>{item.level}</span><span className="tag">{item.tag}</span></div><h3>{item.title}</h3><p>{item.detail}</p></article>)}</div>
+      <div className="priority-grid">{attentionCards.length ? attentionCards.map((item,index)=><article className="priority" key={item.title}><div className="priority-head"><span className={`rank ${index>0?"medium":""}`}>{item.level}</span><span className="tag">{item.tag}</span></div><h3>{item.title}</h3><p>{item.detail}</p></article>) : <article className="priority"><div className="priority-head"><span className="rank medium">Baixa</span><span className="tag">Tudo em dia</span></div><h3>Nenhuma urgência detectada</h3><p>Não há e-mails não lidos nem compromissos restantes que exijam atenção.</p></article>}</div>
     </section>
     <div className="dashboard-grid">
       <section className="panel focus-panel"><div className="section-title small"><Icon>↗</Icon><div><span>PRIORIDADES</span><h2>Hoje eu focaria em</h2></div></div><ol>
-        <li><b>Concluir o bloco de trabalho atual</b><span>Você tem até 12:00 antes do próximo compromisso.</span></li>
-        <li><b>Fazer a recarga do chip da Negra Rosa</b><span>A tarefa começa às 12:00 e não deve ser empurrada para a tarde.</span></li>
-        <li><b>Preparar a sequência das 16:00 às 18:00</b><span>Organize antecipadamente Crostreiner, pendências e o bloco de estudo.</span></li>
+        {liveData?.gmail.unreadInbox ? <li><b>Resolver os e-mails não lidos</b><span>Priorize respostas que possam afetar clientes, prazos ou oportunidades.</span></li> : <li><b>Manter a caixa de entrada em dia</b><span>Nenhum e-mail não lido exige ação neste momento.</span></li>}
+        {liveEvents.slice(0,2).map(item=><li key={item.id}><b>{eventTime(item.start)} · {item.title}</b><span>{item.location || "Prepare-se antes do horário do compromisso."}</span></li>)}
       </ol></section>
-      <section className="panel"><div className="section-title small"><Icon>□</Icon><div><span>AGENDA</span><h2>Compromissos que importam</h2></div></div><div className="timeline">{agenda.map(item=><div className="event" key={item.time}><time>{item.time}</time><i className={item.alert?"alert":""}/><div><b>{item.title}</b><span>{item.note}</span></div>{item.alert&&<em>PREPARAR</em>}</div>)}</div><p className="agenda-note">Não há conflitos identificados entre os compromissos principais.</p></section>
+      <section className="panel"><div className="section-title small"><Icon>□</Icon><div><span>AGENDA</span><h2>Compromissos que importam</h2></div></div><div className="timeline">{liveEvents.length ? liveEvents.map((item,index)=><div className="event" key={item.id}><time>{eventTime(item.start)}</time><i className={index===0?"alert":""}/><div><b>{item.title}</b><span>{item.location || "Google Agenda"}</span></div>{index===0&&<em>PRÓXIMO</em>}</div>) : <div className="event"><time>—</time><i/><div><b>Nenhum compromisso restante</b><span>Sua agenda está livre no restante do dia.</span></div></div>}</div><p className="agenda-note">Dados carregados diretamente do Google Agenda ao abrir o painel.</p></section>
     </div>
     <section className="panel news-panel"><div className="section-title small"><Icon>⌁</Icon><div><span>RADAR DE MERCADO</span><h2>Notícias com impacto prático</h2></div></div><div className="news-grid">{news.map(item=><article key={item.title}><span>{item.category}</span><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Abrir fonte ↗</a></article>)}</div></section>
     <section className="mail-monitor"><div><span className="mail-pulse">●</span><div><b>Monitor executivo ativo</b><p>Gmail e Google Agenda são verificados ao abrir o painel e novamente a cada hora.</p></div></div><span>{nextCheck ? `PRÓXIMA ATUALIZAÇÃO · ${time(nextCheck)}` : "ATUALIZANDO AGORA"}</span></section>
-    <section className="insight"><div className="insight-mark">✦</div><div><span>OBSERVAÇÃO EXECUTIVA</span><p>Não há e-mails não lidos relevantes. Seu próximo ponto de atenção é a <b>recarga do chip da Negra Rosa às 12:00</b>; depois, há uma janela livre até 16:00.</p></div></section>
+    <section className="insight"><div className="insight-mark">✦</div><div><span>OBSERVAÇÃO EXECUTIVA</span><p>{nextEvent ? <>Seu próximo compromisso é <b>{nextEvent.title}, às {eventTime(nextEvent.start)}</b>. {liveData?.gmail.unreadInbox ? `Há também ${liveData.gmail.unreadInbox} e-mail não lido para revisar.` : "Não há e-mails não lidos neste momento."}</> : <>Não há compromissos restantes hoje. {liveData?.gmail.unreadInbox ? `Existem ${liveData.gmail.unreadInbox} e-mails não lidos para revisar.` : "Sua caixa de entrada também está em dia."}</>}</p></div></section>
     <footer><span>JETA PERFORMANCE · INFORMAÇÃO PARA DECIDIR MELHOR</span><span>Último resumo preservado automaticamente em caso de falha</span></footer>
     {view && <div className="drawer-backdrop" role="presentation" onMouseDown={(event)=>event.target===event.currentTarget&&setView(null)}><section className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <div className="drawer-head"><div><span>{view === "mensagem" ? "FALE COM SEU EXECUTIVO" : "VISÃO DETALHADA"}</span><h2 id="drawer-title">{view === "gmail" ? "Mensagens relevantes" : view === "agenda" ? "Agenda do dia" : view === "noticias" ? "Notícias selecionadas" : "O que você precisa?"}</h2></div><button onClick={()=>setView(null)} aria-label="Fechar">×</button></div>
