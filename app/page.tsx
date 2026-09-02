@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 type View = "gmail" | "agenda" | "noticias" | "mensagem" | null;
 type LiveData = { connected: boolean; checkedAt: string; gmail: { unreadInbox: number; messages: Array<{ id: string; sender: string; subject: string; snippet: string }> }; calendar: { remainingToday: number; events: Array<{ id: string; title: string; start?: string; location?: string }> } };
+type NewsItem = { category: string; title: string; impact: string; url: string };
 
 const priorities = [
   { level: "Alta", title: "Recarga da Negra Rosa às 12:00", detail: "O compromisso começa em menos de uma hora. Garanta a recarga do chip antes das próximas estratégias.", tag: "Operação" },
@@ -41,6 +42,7 @@ export default function Home() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [liveData, setLiveData] = useState<LiveData | null>(null);
+  const [liveNews, setLiveNews] = useState<NewsItem[]>([]);
   const [liveError, setLiveError] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<LiveData["calendar"]["events"][number] | null>(null);
   const [newDate, setNewDate] = useState("");
@@ -51,6 +53,20 @@ export default function Home() {
     const close = (event: KeyboardEvent) => event.key === "Escape" && setView(null);
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const updateNews = async () => {
+      try {
+        const response = await fetch(`/api/news?t=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active && Array.isArray(data.articles) && data.articles.length) setLiveNews(data.articles);
+      } catch { /* mantém a última seleção válida */ }
+    };
+    updateNews();
+    const timer = window.setInterval(updateNews, 24 * 60 * 60 * 1000);
+    return () => { active = false; window.clearInterval(timer); };
   }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(new Date()), 60 * 1000);
@@ -83,6 +99,7 @@ export default function Home() {
   const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
   const todayLabel = currentTime.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Bahia" }).toUpperCase();
   const liveEvents = liveData?.calendar.events ?? [];
+  const dailyNews = liveNews.length ? liveNews : news;
   const relevantCount = (liveData?.gmail.unreadInbox ?? 0) + liveEvents.length;
   const eventTime = (start?: string) => start ? time(new Date(start)) : "DIA TODO";
   const nextEvent = liveEvents[0];
@@ -121,11 +138,11 @@ export default function Home() {
       <div className="update"><span className="live-dot" /><div><b>{liveError ? "Último resumo preservado" : checkedAt ? `Atualizado hoje, ${time(checkedAt)}` : "Atualizando agora…"}</b><span>{nextCheck ? `Próxima atualização · ${time(nextCheck)}` : "Consultando Gmail e Agenda"}</span></div></div>
     </header>
     <section className="hero">
-      <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, Judson.</h1><p>Dados consultados agora. Há <b>{relevantCount} item{relevantCount === 1 ? "" : "s"}</b> entre Gmail e Agenda.</p></div>
+      <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, Judson.</h1><p>{liveData ? <>Dados consultados agora. Há <b>{relevantCount} {relevantCount === 1 ? "item" : "itens"}</b> entre Gmail e Agenda.</> : "Consultando Gmail e Google Agenda…"}</p></div>
       <div className="source-status" aria-label="Abrir detalhes das fontes">
         <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{liveData?.gmail.unreadInbox ?? emails.length}</small></button>
         <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{liveData?.calendar.remainingToday ?? agenda.length}</small></button>
-        <button onClick={()=>setView("noticias")}><span>●</span> Notícias <small>{news.length}</small></button>
+        <button onClick={()=>setView("noticias")}><span>●</span> Notícias <small>{dailyNews.length}</small></button>
         <button className="message-button" onClick={()=>{setSent(false);setView("mensagem")}}><span>✦</span> Pedir atualização</button>
       </div>
     </section>
@@ -140,7 +157,7 @@ export default function Home() {
       </ol></section>
       <section className="panel"><div className="section-title small"><Icon>□</Icon><div><span>AGENDA</span><h2>Compromissos que importam</h2></div></div><div className="timeline">{liveEvents.length ? liveEvents.map((item,index)=><div className="event" key={item.id}><time>{eventTime(item.start)}</time><i className={index===0?"alert":""}/><div><b>{item.title}</b><span>{item.location || "Google Agenda"}</span></div>{index===0&&<em>PRÓXIMO</em>}</div>) : <div className="event"><time>—</time><i/><div><b>Nenhum compromisso restante</b><span>Sua agenda está livre no restante do dia.</span></div></div>}</div><p className="agenda-note">Dados carregados diretamente do Google Agenda ao abrir o painel.</p></section>
     </div>
-    <section className="panel news-panel"><div className="section-title small"><Icon>⌁</Icon><div><span>RADAR DE MERCADO</span><h2>Notícias com impacto prático</h2></div></div><div className="news-grid">{news.map(item=><article key={item.title}><span>{item.category}</span><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Abrir fonte ↗</a></article>)}</div></section>
+    <section className="panel news-panel"><div className="section-title small"><Icon>⌁</Icon><div><span>RADAR DE MERCADO</span><h2>Notícias com impacto prático</h2></div></div><div className="news-grid">{dailyNews.map(item=><article key={item.url}><span>{item.category}</span><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Abrir fonte ↗</a></article>)}</div></section>
     <section className="mail-monitor"><div><span className="mail-pulse">●</span><div><b>Monitor executivo ativo</b><p>Gmail e Google Agenda são verificados ao abrir o painel e novamente a cada hora.</p></div></div><span>{nextCheck ? `PRÓXIMA ATUALIZAÇÃO · ${time(nextCheck)}` : "ATUALIZANDO AGORA"}</span></section>
     <section className="insight"><div className="insight-mark">✦</div><div><span>OBSERVAÇÃO EXECUTIVA</span><p>{nextEvent ? <>Seu próximo compromisso é <b>{nextEvent.title}, às {eventTime(nextEvent.start)}</b>. {liveData?.gmail.unreadInbox ? `Há também ${liveData.gmail.unreadInbox} e-mail não lido para revisar.` : "Não há e-mails não lidos neste momento."}</> : <>Não há compromissos restantes hoje. {liveData?.gmail.unreadInbox ? `Existem ${liveData.gmail.unreadInbox} e-mails não lidos para revisar.` : "Sua caixa de entrada também está em dia."}</>}</p></div></section>
     <footer><span>JETA PERFORMANCE · INFORMAÇÃO PARA DECIDIR MELHOR</span><span>Último resumo preservado automaticamente em caso de falha</span></footer>
@@ -148,7 +165,7 @@ export default function Home() {
       <div className="drawer-head"><div><span>{view === "mensagem" ? "FALE COM SEU EXECUTIVO" : "VISÃO DETALHADA"}</span><h2 id="drawer-title">{view === "gmail" ? "Mensagens relevantes" : view === "agenda" ? "Agenda do dia" : view === "noticias" ? "Notícias selecionadas" : "O que você precisa?"}</h2></div><button onClick={()=>setView(null)} aria-label="Fechar">×</button></div>
       {view === "gmail" && <div className="detail-list">{(liveData?.gmail.messages?.length ?? 0) === 0 ? <article className="empty-state"><span>✓</span><h3>Caixa de entrada em dia</h3><p>Nenhuma mensagem não lida foi encontrada nesta atualização.</p></article> : liveData?.gmail.messages.map((item)=><article key={item.id}><div className="detail-meta"><span>NÃO LIDO</span></div><h3>{item.subject}</h3><b>{item.sender}</b><p>{item.snippet}</p></article>)}</div>}
       {view === "agenda" && <div className="detail-list">{liveData?.calendar.events?.map(item=><button className="event-choice" type="button" key={item.id} onClick={()=>chooseEvent(item)}><div className="detail-meta"><span>{item.start ? time(new Date(item.start)) : "DIA TODO"}</span><time>CLIQUE PARA REMARCAR</time></div><h3>{item.title}</h3>{item.location&&<p>{item.location}</p>}</button>)}{selectedEvent&&<form className="request-form reschedule-form" onSubmit={rescheduleEvent}><h3>Remarcar: {selectedEvent.title}</h3><div className="reschedule-fields"><label>Nova data<input type="date" value={newDate} onChange={event=>setNewDate(event.target.value)} required /></label><label>Novo horário<input type="time" value={newTime} onChange={event=>setNewTime(event.target.value)} required /></label></div><div className="form-foot"><button type="button" onClick={()=>setSelectedEvent(null)}>Cancelar</button><button type="submit" disabled={rescheduling}>{rescheduling?"Salvando…":"Confirmar nova data ↗"}</button></div>{rescheduleStatus&&<output>{rescheduleStatus}</output>}</form>}</div>}
-      {view === "noticias" && <div className="detail-list">{news.map(item=><article key={item.title}><div className="detail-meta"><span>{item.category}</span></div><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Ler notícia na fonte ↗</a></article>)}</div>}
+      {view === "noticias" && <div className="detail-list">{dailyNews.map(item=><article key={item.url}><div className="detail-meta"><span>{item.category}</span></div><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Ler notícia na fonte ↗</a></article>)}</div>}
       {view === "mensagem" && <form className="request-form" onSubmit={sendRequest}>
         <p>Registre uma atualização ou ajuste. O monitor executivo processará o pedido na próxima verificação horária.</p>
         <div className="quick-actions">
