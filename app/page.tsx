@@ -34,6 +34,7 @@ const news = [
 function Icon({ children }: { children: React.ReactNode }) { return <span className="icon" aria-hidden="true">{children}</span>; }
 
 export default function Home() {
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const [view, setView] = useState<View>(null);
   const [requestType, setRequestType] = useState("update");
   const [message, setMessage] = useState("");
@@ -50,6 +51,10 @@ export default function Home() {
     const close = (event: KeyboardEvent) => event.key === "Escape" && setView(null);
     document.addEventListener("keydown", close);
     return () => document.removeEventListener("keydown", close);
+  }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 60 * 1000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     let active = true;
@@ -74,6 +79,9 @@ export default function Home() {
   const checkedAt = liveData?.checkedAt ? new Date(liveData.checkedAt) : null;
   const nextCheck = checkedAt ? new Date(checkedAt.getTime() + 60 * 60 * 1000) : null;
   const time = (date: Date | null) => date ? date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Bahia" }) : "—";
+  const hour = Number(currentTime.toLocaleTimeString("pt-BR", { hour: "2-digit", hour12: false, timeZone: "America/Bahia" }));
+  const greeting = hour < 12 ? "Bom dia" : hour < 18 ? "Boa tarde" : "Boa noite";
+  const todayLabel = currentTime.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Bahia" }).toUpperCase();
   async function sendRequest(event: React.FormEvent) {
     event.preventDefault();
     setSending(true);
@@ -105,7 +113,7 @@ export default function Home() {
       <div className="update"><span className="live-dot" /><div><b>{liveError ? "Último resumo preservado" : checkedAt ? `Atualizado hoje, ${time(checkedAt)}` : "Atualizando agora…"}</b><span>{nextCheck ? `Próxima atualização · ${time(nextCheck)}` : "Consultando Gmail e Agenda"}</span></div></div>
     </header>
     <section className="hero">
-      <div><p className="eyebrow">TERÇA-FEIRA · 1º DE SETEMBRO</p><h1>Bom dia, Judson.</h1><p>Seu painel foi atualizado. Há <b>2 pontos</b> que merecem sua atenção.</p></div>
+      <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, Judson.</h1><p>Seu painel foi atualizado. Há <b>2 pontos</b> que merecem sua atenção.</p></div>
       <div className="source-status" aria-label="Abrir detalhes das fontes">
         <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{liveData?.gmail.unreadInbox ?? emails.length}</small></button>
         <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{liveData?.calendar.remainingToday ?? agenda.length}</small></button>
@@ -135,7 +143,7 @@ export default function Home() {
       {view === "agenda" && <div className="detail-list">{liveData?.calendar.events?.map(item=><button className="event-choice" type="button" key={item.id} onClick={()=>chooseEvent(item)}><div className="detail-meta"><span>{item.start ? time(new Date(item.start)) : "DIA TODO"}</span><time>CLIQUE PARA REMARCAR</time></div><h3>{item.title}</h3>{item.location&&<p>{item.location}</p>}</button>)}{selectedEvent&&<form className="request-form reschedule-form" onSubmit={rescheduleEvent}><h3>Remarcar: {selectedEvent.title}</h3><div className="reschedule-fields"><label>Nova data<input type="date" value={newDate} onChange={event=>setNewDate(event.target.value)} required /></label><label>Novo horário<input type="time" value={newTime} onChange={event=>setNewTime(event.target.value)} required /></label></div><div className="form-foot"><button type="button" onClick={()=>setSelectedEvent(null)}>Cancelar</button><button type="submit" disabled={rescheduling}>{rescheduling?"Salvando…":"Confirmar nova data ↗"}</button></div>{rescheduleStatus&&<output>{rescheduleStatus}</output>}</form>}</div>}
       {view === "noticias" && <div className="detail-list">{news.map(item=><article key={item.title}><div className="detail-meta"><span>{item.category}</span></div><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Ler notícia na fonte ↗</a></article>)}</div>}
       {view === "mensagem" && <form className="request-form" onSubmit={sendRequest}>
-        <p>Registre uma atualização ou ajuste. O monitor executivo detectará o pedido em até 1 minuto e iniciará o trabalho imediatamente.</p>
+        <p>Registre uma atualização ou ajuste. O monitor executivo processará o pedido na próxima verificação horária.</p>
         <div className="quick-actions">
           <button type="button" className={requestType==="update"?"active":""} onClick={()=>{setRequestType("update");setMessage("Faça uma nova atualização completa do meu painel agora.")}}>Atualizar painel</button>
           <button type="button" className={requestType==="gmail"?"active":""} onClick={()=>{setRequestType("gmail");setMessage("Revise novamente os e-mails não lidos e destaque o que exige atenção.")}}>Revisar Gmail</button>
@@ -145,7 +153,7 @@ export default function Home() {
         <label htmlFor="executive-message">Sua mensagem</label>
         <textarea id="executive-message" value={message} onChange={event=>setMessage(event.target.value)} placeholder="Ex.: Atualize minha agenda e destaque apenas os compromissos da tarde." maxLength={1200} required />
         <div className="form-foot"><small>{message.length}/1200</small><button type="submit" disabled={sending||!message.trim()}>{sending?"Enviando…":"Enviar solicitação ↗"}</button></div>
-        {sent&&<output>Solicitação registrada. O monitor já está verificando o pedido e iniciará a atualização em até 1 minuto.</output>}
+        {sent&&<output>Solicitação registrada para a próxima verificação horária.</output>}
       </form>}
     </section></div>}
   </main>;
