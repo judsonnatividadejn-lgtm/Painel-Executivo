@@ -57,6 +57,13 @@ export async function GET() {
     }, { headers: { "cache-control": "no-store" } });
   } catch (error) {
     console.error("Google connection check failed", error);
-    return Response.json({ connected: false, error: "google_api_error" }, { status: 502 });
+    const status = typeof error === "object" && error && "code" in error ? Number(error.code) : 0;
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    const authRequired = status === 401 || message.includes("invalid_grant") || message.includes("unauthorized");
+    return Response.json({
+      connected: false,
+      error: authRequired ? "google_authorization_required" : "google_api_error",
+      checkedAt: new Date().toISOString(),
+    }, { status: authRequired ? 401 : 502, headers: { "cache-control": "no-store" } });
   }
 }
