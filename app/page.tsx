@@ -44,6 +44,8 @@ export default function Home() {
   const [liveData, setLiveData] = useState<LiveData | null>(null);
   const [liveNews, setLiveNews] = useState<NewsItem[]>([]);
   const [liveError, setLiveError] = useState(false);
+  const [liveErrorCode, setLiveErrorCode] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<LiveData["calendar"]["events"][number] | null>(null);
   const [newDate, setNewDate] = useState("");
   const [newTime, setNewTime] = useState("");
@@ -72,25 +74,28 @@ export default function Home() {
     const timer = window.setInterval(() => setCurrentTime(new Date()), 60 * 1000);
     return () => window.clearInterval(timer);
   }, []);
-  useEffect(() => {
-    let active = true;
-    const update = async () => {
+  async function updateLiveData() {
+      setRefreshing(true);
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const response = await fetch(`/api/google/status?t=${Date.now()}`, { cache: "no-store" });
-          if (!response.ok) throw new Error("Falha ao atualizar");
           const data = await response.json();
-          if (active) { setLiveData(data); setLiveError(false); }
+          if (!response.ok || !data.connected) {
+            setLiveErrorCode(data.error || "google_api_error");
+            throw new Error("Falha ao atualizar");
+          }
+          setLiveData(data); setLiveError(false); setLiveErrorCode(""); setRefreshing(false);
           return;
         } catch {
           if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt));
         }
       }
-      if (active) setLiveError(true);
-    };
-    update();
-    const timer = window.setInterval(update, 60 * 60 * 1000);
-    return () => { active = false; window.clearInterval(timer); };
+      setLiveError(true); setRefreshing(false);
+  }
+  useEffect(() => {
+    updateLiveData();
+    const timer = window.setInterval(updateLiveData, 60 * 60 * 1000);
+    return () => window.clearInterval(timer);
   }, []);
   const checkedAt = liveData?.checkedAt ? new Date(liveData.checkedAt) : null;
   const nextCheck = checkedAt ? new Date(checkedAt.getTime() + 60 * 60 * 1000) : null;
@@ -135,20 +140,20 @@ export default function Home() {
   return <main>
     <header className="topbar">
       <div className="brand"><img src="/jeta-logo.png" alt="JETA Performance" /><div><strong>JETA PERFORMANCE</strong><span>Seu Painel Executivo</span></div></div>
-      <div className="update"><span className="live-dot" /><div><b>{liveError ? "Último resumo preservado" : checkedAt ? `Atualizado hoje, ${time(checkedAt)}` : "Atualizando agora…"}</b><span>{nextCheck ? `Próxima atualização · ${time(nextCheck)}` : "Consultando Gmail e Agenda"}</span></div></div>
+      <div className="update"><span className="live-dot" /><div><b>{liveError ? "Google desconectado — dados não atualizados" : checkedAt ? `Atualizado hoje, ${time(checkedAt)}` : "Atualizando agora…"}</b><span>{liveError ? "Não exibiremos zero como se fosse um resultado real" : nextCheck ? `Próxima atualização · ${time(nextCheck)}` : "Consultando Gmail e Agenda"}</span></div><button type="button" onClick={updateLiveData} disabled={refreshing}>{refreshing ? "Atualizando…" : "Atualizar agora"}</button></div>
     </header>
     <section className="hero">
-      <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, Judson.</h1><p>{liveData ? <>Dados consultados agora. Há <b>{relevantCount} {relevantCount === 1 ? "item" : "itens"}</b> entre Gmail e Agenda.</> : "Consultando Gmail e Google Agenda…"}</p></div>
+      <div><p className="eyebrow">{todayLabel}</p><h1>{greeting}, Judson.</h1><p>{liveError ? <>A consulta ao Google falhou. <b>Os números abaixo não devem ser considerados atualizados.</b></> : liveData ? <>Dados consultados agora. Há <b>{relevantCount} {relevantCount === 1 ? "item" : "itens"}</b> entre Gmail e Agenda.</> : "Consultando Gmail e Google Agenda…"}</p></div>
       <div className="source-status" aria-label="Abrir detalhes das fontes">
-        <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{liveData?.gmail.unreadInbox ?? emails.length}</small></button>
-        <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{liveData?.calendar.remainingToday ?? agenda.length}</small></button>
+        <button onClick={()=>setView("gmail")}><span>●</span> Gmail <small>{liveError ? "—" : liveData?.gmail.unreadInbox ?? "…"}</small></button>
+        <button onClick={()=>setView("agenda")}><span>●</span> Agenda <small>{liveError ? "—" : liveData?.calendar.remainingToday ?? "…"}</small></button>
         <button onClick={()=>setView("noticias")}><span>●</span> Notícias <small>{dailyNews.length}</small></button>
         <button className="message-button" onClick={()=>{setSent(false);setView("mensagem")}}><span>✦</span> Pedir atualização</button>
       </div>
     </section>
     <section className="attention">
       <div className="section-title"><Icon>!</Icon><div><span>ATENÇÃO IMEDIATA</span><h2>O que pode custar tempo ou oportunidade</h2></div></div>
-      <div className="priority-grid">{attentionCards.length ? attentionCards.map((item,index)=><article className="priority" key={item.title}><div className="priority-head"><span className={`rank ${index>0?"medium":""}`}>{item.level}</span><span className="tag">{item.tag}</span></div><h3>{item.title}</h3><p>{item.detail}</p></article>) : <article className="priority"><div className="priority-head"><span className="rank medium">Baixa</span><span className="tag">Tudo em dia</span></div><h3>Nenhuma urgência detectada</h3><p>Não há e-mails não lidos nem compromissos restantes que exijam atenção.</p></article>}</div>
+      <div className="priority-grid">{liveError ? <article className="priority"><div className="priority-head"><span className="rank">Alta</span><span className="tag">Conexão Google</span></div><h3>Não foi possível validar Gmail e Agenda</h3><p>{liveErrorCode === "google_authorization_required" ? "A autorização do Google precisa ser renovada." : "O servidor do Google não respondeu corretamente. Tente atualizar novamente."}</p></article> : attentionCards.length ? attentionCards.map((item,index)=><article className="priority" key={item.title}><div className="priority-head"><span className={`rank ${index>0?"medium":""}`}>{item.level}</span><span className="tag">{item.tag}</span></div><h3>{item.title}</h3><p>{item.detail}</p></article>) : <article className="priority"><div className="priority-head"><span className="rank medium">Baixa</span><span className="tag">Tudo em dia</span></div><h3>Nenhuma urgência detectada</h3><p>Não há e-mails não lidos nem compromissos restantes que exijam atenção.</p></article>}</div>
     </section>
     <div className="dashboard-grid">
       <section className="panel focus-panel"><div className="section-title small"><Icon>↗</Icon><div><span>PRIORIDADES</span><h2>Hoje eu focaria em</h2></div></div><ol>
@@ -163,7 +168,7 @@ export default function Home() {
     <footer><span>JETA PERFORMANCE · INFORMAÇÃO PARA DECIDIR MELHOR</span><span>Último resumo preservado automaticamente em caso de falha</span></footer>
     {view && <div className="drawer-backdrop" role="presentation" onMouseDown={(event)=>event.target===event.currentTarget&&setView(null)}><section className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
       <div className="drawer-head"><div><span>{view === "mensagem" ? "FALE COM SEU EXECUTIVO" : "VISÃO DETALHADA"}</span><h2 id="drawer-title">{view === "gmail" ? "Mensagens relevantes" : view === "agenda" ? "Agenda do dia" : view === "noticias" ? "Notícias selecionadas" : "O que você precisa?"}</h2></div><button onClick={()=>setView(null)} aria-label="Fechar">×</button></div>
-      {view === "gmail" && <div className="detail-list">{(liveData?.gmail.messages?.length ?? 0) === 0 ? <article className="empty-state"><span>✓</span><h3>Caixa de entrada em dia</h3><p>Nenhuma mensagem não lida foi encontrada nesta atualização.</p></article> : liveData?.gmail.messages.map((item)=><article key={item.id}><div className="detail-meta"><span>NÃO LIDO</span></div><h3>{item.subject}</h3><b>{item.sender}</b><p>{item.snippet}</p></article>)}</div>}
+      {view === "gmail" && <div className="detail-list">{liveError ? <article className="empty-state"><span>!</span><h3>Gmail não consultado</h3><p>A conexão do Google falhou. Nenhuma conclusão sobre sua caixa de entrada foi feita.</p></article> : (liveData?.gmail.messages?.length ?? 0) === 0 ? <article className="empty-state"><span>✓</span><h3>Caixa de entrada em dia</h3><p>Nenhuma mensagem não lida foi encontrada nesta atualização.</p></article> : liveData?.gmail.messages.map((item)=><article key={item.id}><div className="detail-meta"><span>NÃO LIDO</span></div><h3>{item.subject}</h3><b>{item.sender}</b><p>{item.snippet}</p></article>)}</div>}
       {view === "agenda" && <div className="detail-list">{liveData?.calendar.events?.map(item=><button className="event-choice" type="button" key={item.id} onClick={()=>chooseEvent(item)}><div className="detail-meta"><span>{item.start ? time(new Date(item.start)) : "DIA TODO"}</span><time>CLIQUE PARA REMARCAR</time></div><h3>{item.title}</h3>{item.location&&<p>{item.location}</p>}</button>)}{selectedEvent&&<form className="request-form reschedule-form" onSubmit={rescheduleEvent}><h3>Remarcar: {selectedEvent.title}</h3><div className="reschedule-fields"><label>Nova data<input type="date" value={newDate} onChange={event=>setNewDate(event.target.value)} required /></label><label>Novo horário<input type="time" value={newTime} onChange={event=>setNewTime(event.target.value)} required /></label></div><div className="form-foot"><button type="button" onClick={()=>setSelectedEvent(null)}>Cancelar</button><button type="submit" disabled={rescheduling}>{rescheduling?"Salvando…":"Confirmar nova data ↗"}</button></div>{rescheduleStatus&&<output>{rescheduleStatus}</output>}</form>}</div>}
       {view === "noticias" && <div className="detail-list">{dailyNews.map(item=><article key={item.url}><div className="detail-meta"><span>{item.category}</span></div><h3>{item.title}</h3><p>{item.impact}</p><a href={item.url} target="_blank" rel="noreferrer">Ler notícia na fonte ↗</a></article>)}</div>}
       {view === "mensagem" && <form className="request-form" onSubmit={sendRequest}>
